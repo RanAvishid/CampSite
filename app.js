@@ -1,3 +1,7 @@
+if(process.env.NODE_ENV !== "production") {
+    require ('dotenv').config();
+}
+
 const express = require('express');
 const path = require('path');
 const mongoose = require('mongoose');
@@ -9,13 +13,16 @@ const methodOverride = require('method-override');
 const passport = require('passport');
 const LocalStrategy = require('passport-local');
 const User = require('./moudles/user');
-
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize')
 const userRoutes = require('./routes/users');
 const campgroundsRoutes = require('./routes/campgrounds');
 const reviewsRoutes = require('./routes/reviews');
 
+const MongoDBStore = require("connect-mongo")(session);
 
-mongoose.connect('mongodb://localhost:27017/yelp-camp');
+const dbUrl = process.env.DB_URL || 'mongodb://localhost:27017/yelp-camp';
+mongoose.connect(dbUrl);
 
 const db = mongoose.connection;
 db.on("error", console.error.bind(console,"connection error:"));
@@ -32,19 +39,37 @@ app.set('views',path.join(__dirname,'views'));
 app.use(express.urlencoded({extended: true}));
 app.use(methodOverride('_method'));
 app.use(express.static(path.join(__dirname,'public')));
+app.use(mongoSanitize({
+    replaceWith: '_'
+}));
+const secret = process.env.SECRET || 'thisshouldbeabettersecret';
+
+const store = new MongoDBStore({
+    url: dbUrl,
+    secret,
+    touchAfter: 24 * 60 * 60
+});
+
+store.on("error", function (e) {
+    console.log("SESSTION STORE ERROR",err)
+})
 
 const sessionConfig = {
-    secret: 'thisshouldbeabettersecret',
+    store,
+    name: 'session',
+    secret,
     resave: false,
     saveUninitialized: true,
     cookie: {
         httpOnly: true,
+        // secure: true,
         expires: Date.now() + 100 * 60 * 60 * 24 * 7,
         makeAge: 100 * 60 * 60 * 24 * 7
     }
 }
-app.use(session(sessionConfig))
+app.use(session(sessionConfig));
 app.use(flash());
+app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -59,6 +84,8 @@ app.use((req,res,next) => {
     res.locals.error = req.flash('error');
     next();
 })
+
+
 
 
 app.use('/',userRoutes);
